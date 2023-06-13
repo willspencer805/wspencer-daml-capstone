@@ -1,0 +1,174 @@
+module Test where
+import LoyaltyAccount
+import Daml.Script
+import DA.Date
+
+data TestParties = TestParties with
+    alice: Party
+    bob: Party
+    nike: Party
+
+data TestAccounts = TestAccounts with
+    nikeAccount: ContractId PointsAccount
+    aliceAccount: ContractId PointsAccount
+    bobAccount: ContractId PointsAccount
+
+data PartyData = PartyData with
+    aliceData: UserData
+    bobData: UserData
+
+setupParties = script do
+    alice <- allocateParty "alice"
+    bob <- allocateParty "bob"
+    nike <- allocateParty "nike"
+
+    let 
+        tp = TestParties with
+            ..
+    return tp
+
+setupAccounts = script do 
+    tp@TestParties{..} <- setupParties
+    time <- getTime
+    let 
+        nikePointType = PointType with
+            company = nike
+            companyName = "Nike Points"
+
+        nikeMasterUser = UserData with
+            name = "Nike"
+            email = "main@nike.com"
+            phone = Some 18006248999
+            dob = date 2000 Oct 31
+            memberSince = date 2023 Jun 12
+
+    nikeAccount <- submit nike do
+        createCmd PointsAccount
+            with
+                user = nike
+                userData = nikeMasterUser
+                pointType = nikePointType
+                brand = nike
+    
+    -- PROPOSALS
+    aliceNikeProposal <- submit nike do
+        exerciseCmd nikeAccount CreateAccountProposal 
+            with
+                recipient = alice
+
+    bobNikeProposal <- submit nike do
+        exerciseCmd nikeAccount CreateAccountProposal 
+            with
+                recipient = bob
+
+    let 
+        aliceData = UserData with   
+            name = "Alice"
+            email = "alice@gmail.com"
+            phone = None
+            dob = date 2000 Oct 31
+            memberSince = date 2023 Jun 12
+
+        bobData = UserData with   
+            name = "Bob"
+            email = "Bob@gmail.com"
+            phone = None
+            dob = date 2000 Oct 31
+            memberSince = date 2023 Jun 12
+
+        partyData = PartyData with
+            aliceData
+            bobData
+
+    aliceAccountCid <- submit alice do 
+        exerciseCmd aliceNikeProposal AccountProposal_Accept with userData = aliceData
+
+    bobAccountCid <- submit bob do 
+        exerciseCmd bobNikeProposal AccountProposal_Accept with userData = bobData
+
+    let
+        ta = TestAccounts with
+            nikeAccount 
+            aliceAccount = aliceAccountCid
+            bobAccount = bobAccountCid
+
+    return (tp, ta, partyData)
+
+testGrantPoints = script do
+    (tp@TestParties{..}, ta@TestAccounts{..}, pd@PartyData{..}) <- setupAccounts
+    submit nike do
+        exerciseCmd aliceAccount GrantPoints with amountToGrant = 100
+
+    submit nike do
+        exerciseCmd aliceAccount GrantPoints with amountToGrant = 10
+
+    submitMustFail alice do
+        exerciseCmd aliceAccount GrantPoints with amountToGrant = 1000
+
+
+testRedeemPoints = script do 
+    (tp@TestParties{..}, ta@TestAccounts{..}, pd@PartyData{..}) <- setupAccounts
+    alicePointsCid1 <- submit nike do
+        exerciseCmd aliceAccount GrantPoints with amountToGrant = 100
+
+    alicePointsCid2 <- submit nike do
+        exerciseCmd aliceAccount GrantPoints with amountToGrant = 200
+
+    submit alice do
+        exerciseCmd aliceAccount RedeemPoints 
+            with 
+                amountRequiredForRedeem = 100 
+                pointCids = [alicePointsCid1]
+
+    submitMustFail alice do
+        exerciseCmd aliceAccount RedeemPoints 
+            with 
+                amountRequiredForRedeem = 100 
+                pointCids = [alicePointsCid2]
+        
+    return ()
+
+testAccountCreationWithBadName = script do
+    (tp@TestParties{..}) <- setupParties
+
+    let
+        nikePointType = PointType with
+            company = nike
+            companyName = "Nike Points"
+
+        nikeData = UserData with
+            name = "nike"
+            email = "nike@bob.com"
+            phone = Some 18006248999
+            dob = date 2000 Oct 31
+            memberSince = date 2023 Jun 12
+
+        badUserData = UserData with
+            name = "bob1234"
+            email = "bob@bob.com"
+            phone = Some 18006248999
+            dob = date 2000 Oct 31
+            memberSince = date 2023 Jun 12
+        goodUserData = UserData with
+            name = "bob"
+            email = "bob@bob.com"
+            phone = Some 18006248999
+            dob = date 2000 Oct 31
+            memberSince = date 2023 Jun 12
+
+    nikeAccount <- submit nike do
+        createCmd PointsAccount with
+            user = nike
+            userData = nikeData
+            pointType = nikePointType
+            brand = nike
+
+    bobAccountProposal <- submit nike do
+        exerciseCmd nikeAccount CreateAccountProposal with recipient = bob
+
+    submitMustFail bob do
+        exerciseCmd bobAccountProposal AccountProposal_Accept with userData = badUserData
+    submit bob do
+        exerciseCmd bobAccountProposal AccountProposal_Accept with userData = goodUserData
+    return ()
+

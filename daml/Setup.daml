@@ -1,0 +1,55 @@
+module Setup where
+import LoyaltyAccount
+import Daml.Script
+import DA.Date
+
+data TestUsers = TestUsers with
+    company: Party
+    user1: Party
+    user2: Party
+
+setupParties : Script TestUsers
+setupParties = script do
+    alice <- allocatePartyWithHint "Alice" (PartyIdHint "ALC")
+    bob <- allocatePartyWithHint "Bob" (PartyIdHint "BOB")
+    nike <- allocatePartyWithHint "Nike" (PartyIdHint "NIKE")
+
+    let 
+        tp = TestUsers with
+            company = nike
+            user1 = alice
+            user2 = bob
+    return tp
+
+setupAccounts = script do 
+    tp@TestUsers{..} <- setupParties
+    time <- getTime
+    let 
+        nikePointType = PointType with
+            company 
+            companyName = "Nike Points"
+
+        nikeMasterUser = UserData with
+            name = "Nike"
+            email = "main@nike.com"
+            phone = Some 18006248999
+            dob = date 2000 Oct 31
+            memberSince = date 2023 Jun 12
+
+    nike <- validateUserId "Nike"   
+    alice <- validateUserId "Alice"
+    bob <- validateUserId "Bob"
+
+    nikeAccount <- submit company do
+        createCmd PointsAccount
+            with
+                user = company
+                userData = nikeMasterUser
+                pointType = nikePointType
+                brand = company
+
+    createUser (User nike (Some company)) [CanActAs company]  
+    createUser (User alice (Some user1)) [CanActAs user1]
+    createUser (User bob (Some user2)) [CanActAs user2]
+
+    return ()

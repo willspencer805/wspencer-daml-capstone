@@ -1,0 +1,113 @@
+module LoyaltyAccount where
+import DA.Foldable (forA_)
+import DA.Text (isAlpha)
+
+-- HELPER FUNCS
+validatePointsAndCalcBalance: [ContractId Point] -> Int -> ContractId PointsAccount -> Update Int
+validatePointsAndCalcBalance pointCids amountRequired pointsHoldingAccountCid = do
+    account <- fetch pointsHoldingAccountCid
+    totalAmount <- sum <$> forA pointCids (\cid -> do
+        point <- fetch cid
+        assertMsg "Incorrect point type provided" $ account.pointType == point.pointType
+        assertMsg "You are not the owner of this point" $ account.user == point.owner
+        return point.amount)
+    assertMsg "Insufficient funds" $ totalAmount >= amountRequired
+    return totalAmount
+
+-- DATA RECORDS
+data UserData = UserData 
+    with
+        name: Text
+        email: Text
+        phone: Optional Int
+        dob: Date
+        memberSince: Date
+    deriving (Eq, Show)
+
+data PointType = PointType 
+    with
+        company: Party
+        companyName: Text
+    deriving (Eq, Show)
+
+-- TEMPLATES
+template PointsAccount
+    with
+        user: Party
+        userData: UserData
+        pointType: PointType
+        brand: Party
+    where
+        signatory user, brand
+        key (userData.email, user): (Text, Party)
+        maintainer key._2
+
+        ensure isAlpha userData.name
+        nonconsuming choice CreateAccountProposal: ContractId AccountProposal
+            with
+                recipient: Party
+            controller brand
+            do
+                create AccountProposal with 
+                    recipient
+                    pointsAccount = this
+
+        nonconsuming choice GrantPoints: ContractId Point
+            with 
+                amountToGrant: Int
+            controller brand
+            do
+                create Point with
+                    owner = user
+                    amount = amountToGrant
+                    pointType
+
+        nonconsuming choice RedeemPoints: ()
+            with
+                amountRequiredForRedeem: Int
+                pointCids: [ContractId Point]
+            controller user
+            do
+                totalPointsBalance <- validatePointsAndCalcBalance pointCids amountRequiredForRedeem self
+                assertMsg "Exact amount not provided" $ totalPointsBalance == amountRequiredForRedeem
+
+                -- archive the point contracts provided
+                forA_ pointCids archive
+                debug "Congratulations! You have successfully redeemed your points."
+
+                return ()
+    
+template AccountProposal
+    with
+        recipient: Party
+        pointsAccount: PointsAccount
+    where
+        signatory pointsAccount.brand
+        observer recipient
+
+        choice AccountProposal_Accept: ContractId PointsAccount
+            with    
+                userData: UserData
+            controller recipient
+            do
+                create pointsAccount with
+                    user = recipient
+                    userData
+        
+        choice AccountProposal_Reject: ()
+            controller recipient
+            do
+                return ()
+
+        choice AccountProposal_Cancel: ()
+            controller pointsAccount.brand
+            do
+                return ()
+        
+template Point 
+    with
+        pointType: PointType
+        owner: Party
+        amount: Int 
+    where 
+        signatory owner, pointType.company
