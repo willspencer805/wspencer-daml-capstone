@@ -1,10 +1,11 @@
 module LoyaltyAccount where
 import DA.Foldable (forA_)
 import DA.Text (isAlpha)
+import DA.Action (foldlA)
 
 -- HELPER FUNCS
-validatePointsAndCalcBalance: [ContractId Point] -> Int -> ContractId PointsAccount -> Update Int
-validatePointsAndCalcBalance pointCids amountRequired pointsHoldingAccountCid = do
+validatePointsAndCalcBalance: [ContractId Point]  -> ContractId PointsAccount -> Int -> Update Int
+validatePointsAndCalcBalance pointCids pointsHoldingAccountCid amountRequired = do
     account <- fetch pointsHoldingAccountCid
     totalAmount <- sum <$> forA pointCids (\cid -> do
         point <- fetch cid
@@ -68,7 +69,7 @@ template PointsAccount
                 pointCids: [ContractId Point]
             controller user
             do
-                totalPointsBalance <- validatePointsAndCalcBalance pointCids amountRequiredForRedeem self
+                totalPointsBalance <- validatePointsAndCalcBalance pointCids self $ amountRequiredForRedeem
                 assertMsg "Exact amount not provided" $ totalPointsBalance == amountRequiredForRedeem
 
                 -- archive the point contracts provided
@@ -76,6 +77,31 @@ template PointsAccount
                 debug "Congratulations! You have successfully redeemed your points."
 
                 return ()
+
+        nonconsuming choice CombinePoints: [ContractId Point]
+            with
+                pointCids: [ContractId Point]
+                outputAmounts: [Int]
+            controller user
+            do
+                totalAmount <- validatePointsAndCalcBalance pointCids self $ sum outputAmounts
+                forA_ pointCids archive 
+                let
+                    createOutputAssets assetsList amt = do
+                        assertMsg "Output amount must be postive" $ amt > 0
+                        a <- create Point with
+                            pointType
+                            owner = user
+                            amount = amt
+                        return $ a :: assetsList
+                outputAssetCids <- foldlA createOutputAssets [] outputAmounts
+                if totalAmount > sum outputAmounts then do
+                    a <- create Point with
+                        pointType
+                        owner = user
+                        amount = totalAmount - sum outputAmounts
+                    return $ a :: outputAssetCids
+                else return outputAssetCids
     
 template AccountProposal
     with

@@ -96,15 +96,21 @@ setupAccounts = script do
 
 testGrantPoints = script do
     (tp@TestParties{..}, ta@TestAccounts{..}, pd@PartyData{..}) <- setupAccounts
-    submit nike do
+    alice1 <- submit nike do
         exerciseCmd aliceAccount GrantPoints with amountToGrant = 100
 
-    submit nike do
+    alice2 <- submit nike do
         exerciseCmd aliceAccount GrantPoints with amountToGrant = 10
 
     submitMustFail alice do
         exerciseCmd aliceAccount GrantPoints with amountToGrant = 1000
 
+    submit alice do
+        exerciseCmd aliceAccount CombinePoints 
+            with
+                pointCids = [alice1, alice2]
+                outputAmounts = [90, 5]
+    
 
 testRedeemPoints = script do 
     (tp@TestParties{..}, ta@TestAccounts{..}, pd@PartyData{..}) <- setupAccounts
