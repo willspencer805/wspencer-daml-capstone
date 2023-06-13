@@ -12,3 +12,7 @@ Points can only be granted through the brand (aka issuer). After receiving point
 2. user exercises Accept choice on proposal account, including their user data such as name, email, etc.
 3. brand/company grants points to user account (assumed this would be triggered via a purchase, interaction, etc.)
 4. user redeems points for "real world" reward
+
+## Run the App
+
+To run the app, you can run the tests in `Test.daml` or run `daml start` to interact with the application in a GUI.
